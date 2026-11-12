@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <exception>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <random>
 #include <catch2/catch_test_macros.hpp>
@@ -12,6 +15,7 @@
 #include "tests/core/system_test_context.h"
 #include "video_core/memory_manager.h"
 #include "video_core/nx2_perf.h"
+#include "video_core/nx2_debug_control.h"
 #include "video_core/rasterizer_interface.h"
 
 namespace {
@@ -61,6 +65,55 @@ public:
 };
 
 } // namespace
+
+TEST_CASE("GPU translation cache follows remaps and live toggles", "[memory_manager][translation_cache]") {
+    ScopedSystemTestContext context;
+    Core::System system;
+    Core::DeviceMemory physical;
+    Tegra::MaxwellDeviceMemoryManager device_memory{physical};
+    NullRasterizer rasterizer;
+    Tegra::MemoryManager memory{system, device_memory, 32, 1ULL << 31, 16};
+    memory.BindRasterizer(&rasterizer);
+    Tegra::MemoryManager other{system, device_memory, 32, 1ULL << 31, 16};
+    other.BindRasterizer(&rasterizer);
+    auto* mode = VideoCore::Nx2Debug::FindSwitch("EDEN_NX2_EXP63");
+    REQUIRE(mode != nullptr);
+    struct Restore {
+        std::atomic<int>* mode;
+        int value;
+        ~Restore() { mode->store(value); }
+    } restore{mode, mode->load()};
+    constexpr GPUVAddr gpu = 0x40000000;
+    for (const int enabled : {0, 1, 0, 1}) {
+        mode->store(enabled);
+        REQUIRE_FALSE(memory.GpuToCpuAddress(gpu));
+        memory.Map(gpu, 0x10000000, 0x1000, Tegra::PTEKind::PITCH, false);
+        CHECK(memory.GpuToCpuAddress(gpu + 0x123) == 0x10000123);
+        memory.Unmap(gpu, 0x1000);
+        REQUIRE_FALSE(memory.GpuToCpuAddress(gpu));
+        memory.Map(gpu, 0x20000000, 0x10000, Tegra::PTEKind::PITCH, true);
+        CHECK(memory.GpuToCpuAddress(gpu + 0x4321) == 0x20004321);
+        other.Map(gpu, 0x30000000, 0x10000, Tegra::PTEKind::PITCH, true);
+        CHECK(other.GpuToCpuAddress(gpu + 0x4321) == 0x30004321);
+        CHECK(memory.GpuToCpuAddress(gpu + 0x4321) == 0x20004321);
+        other.Unmap(gpu, 0x10000);
+        if (std::getenv("FRITCHII_TRANSLATION_BENCHMARK")) {
+            u64 checksum = 0;
+            constexpr u64 iterations = 5'000'000;
+            const auto start = std::chrono::steady_clock::now();
+            for (u64 i = 0; i < iterations; ++i) {
+                checksum += memory.GpuToCpuAddress(gpu + (i & 0xfff)).value_or(0);
+            }
+            const double ms = std::chrono::duration<double, std::milli>(
+                                  std::chrono::steady_clock::now() - start).count();
+            std::printf("Translation benchmark: cache=%d, %llu calls, %.3f ms, checksum=%llu\n",
+                        enabled, static_cast<unsigned long long>(iterations), ms,
+                        static_cast<unsigned long long>(checksum));
+        }
+        memory.Unmap(gpu, 0x10000);
+        REQUIRE_FALSE(memory.GpuToCpuAddress(gpu + 0x4321));
+    }
+}
 
 TEST_CASE("MaxContinuousRange from the mapping runs matches the page walk", "[memory_manager]") {
     REQUIRE(VideoCommon::Nx2Perf::Enabled());

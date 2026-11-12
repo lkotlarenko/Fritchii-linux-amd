@@ -332,17 +332,22 @@ std::optional<DAddr> MemoryManager::GpuToCpuAddress(GPUVAddr gpu_addr) const {
     const bool use_cache = cache_allowed && VideoCore::Nx2Debug::Experiment(63) != 0;
     constexpr u64 SubpageBits = 12;
     constexpr u64 SubpageMask = (u64{1} << SubpageBits) - 1;
-    const u64 owner_id = (u64{unique_identifier} << 1) | 1; // Never 0, the empty slot
-    const u64 page = gpu_addr >> SubpageBits;
-    const u64 serial = map_serial.load(std::memory_order_acquire);
-    CachedPage& slot = cache[(page ^ (page >> 11)) % CacheSize];
-    if (use_cache && slot.owner == owner_id && slot.page == page && slot.serial == serial) [[likely]] {
-        return slot.device_page + (gpu_addr & SubpageMask);
+    CachedPage* slot = nullptr;
+    u64 serial = 0;
+    if (use_cache) {
+        const u64 owner_id = (u64{unique_identifier} << 1) | 1; // Never the empty owner
+        const u64 page = gpu_addr >> SubpageBits;
+        serial = map_serial.load(std::memory_order_acquire);
+        slot = &cache[(page ^ (page >> 11)) % CacheSize];
+        if (slot->owner == owner_id && slot->page == page && slot->serial == serial) [[likely]] {
+            return slot->device_page + (gpu_addr & SubpageMask);
+        }
     }
     DAddr dev_addr;
     if (GetEntry(gpu_addr, true) != EntryType::Mapped) [[unlikely]] {
-        if (GetEntry(gpu_addr, false) != EntryType::Mapped)
+        if (GetEntry(gpu_addr, false) != EntryType::Mapped) {
             return std::nullopt;
+        }
         dev_addr = (DAddr(page_table[PageEntryIndex(gpu_addr, false)]) << cpu_page_bits) +
                    (gpu_addr & page_mask);
     } else {
@@ -354,8 +359,9 @@ std::optional<DAddr> MemoryManager::GpuToCpuAddress(GPUVAddr gpu_addr) const {
                   dev_addr);
         return std::nullopt;
     }
-    if (use_cache) {
-        slot = CachedPage{owner_id, serial, page, dev_addr - (gpu_addr & SubpageMask)};
+    if (slot) {
+        *slot = CachedPage{(u64{unique_identifier} << 1) | 1, serial, gpu_addr >> SubpageBits,
+                           dev_addr - (gpu_addr & SubpageMask)};
     }
     return dev_addr;
 }
