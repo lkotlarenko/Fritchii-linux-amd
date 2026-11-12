@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <map>
 #include <set>
 #include <span>
@@ -384,7 +385,7 @@ TEST_CASE("Global fallback backends address sparse guest slots through compact b
     }
 }
 
-TEST_CASE("SPIR-V global memory helpers are emitted as DontInline functions",
+TEST_CASE("SPIR-V global memory helpers honor the inline setting",
           "[video_core][spirv][global_memory]") {
     Program fixture;
     auto& info = fixture.program.info;
@@ -408,6 +409,8 @@ TEST_CASE("SPIR-V global memory helpers are emitted as DontInline functions",
     constexpr u32 OpFunction = 54;
     constexpr u32 OpFunctionCall = 57;
     constexpr u32 DontInline = 0x2;
+    const char* inline_setting = std::getenv("EDEN_NX2_SPIRV_INLINE_GLOBALS");
+    const bool dont_inline = inline_setting != nullptr && inline_setting[0] == '0';
     std::map<u32, u32> controls;
     for (const auto& op : Instructions(code, OpFunction)) {
         REQUIRE(op.size() == 4);
@@ -427,7 +430,7 @@ TEST_CASE("SPIR-V global memory helpers are emitted as DontInline functions",
     for (const u32 callee : callees) {
         CAPTURE(callee);
         REQUIRE(controls.contains(callee));
-        CHECK((controls.at(callee) & DontInline) != 0);
+        CHECK(((controls.at(callee) & DontInline) != 0) == dont_inline);
     }
 }
 

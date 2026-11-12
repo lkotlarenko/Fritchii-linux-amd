@@ -7,12 +7,16 @@
 
 using namespace Common::FS;
 
-TEST_CASE("Lichii keeps its data apart from Eden's", "[fs]") {
+TEST_CASE("Profile roots follow the platform data directory policy", "[fs]") {
     const auto& data = GetEdenPath(EdenPath::EdenDir);
     if (data.filename() == "user") {
         SKIP("portable user directory in use");
     }
+#if defined(__linux__) && !defined(__ANDROID__)
+    CHECK(data.filename() == "eden");
+#else
     CHECK(data.filename() == "fritchii");
+#endif
     CHECK(GetLegacyPath(LegacyEdenDir).filename() == "eden");
     CHECK(GetLegacyPath(LegacyEdenDir).parent_path() == data.parent_path());
 }

@@ -6,6 +6,13 @@ cmake_minimum_required(VERSION 3.31)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "macOS deployment target")
 project(yuzu)
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # Keep local checkout paths out of release binaries and bundled dependency diagnostics.
+    foreach(language C CXX)
+        string(APPEND CMAKE_${language}_FLAGS " \"-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.\"")
+    endforeach()
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/find")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/externals/cmake-modules")
@@ -759,11 +766,23 @@ endif()
 
 # TODO: Icon/install handling n such should be put into dist/CMakeLists.txt
 if(ENABLE_QT AND UNIX AND NOT APPLE)
-    install(FILES "dist/io.github.zortos293.lichii.desktop"
-        DESTINATION "share/applications")
-    install(FILES "dist/lichii.png"
-        DESTINATION "share/icons/hicolor/256x256/apps"
-        RENAME "io.github.zortos293.lichii.png")
+    if(LINUX AND EXISTS "${PROJECT_SOURCE_DIR}/dist/frizti_version.txt"
+       AND NOT LICHII_BUILD_TAG MATCHES "^build-[0-9]+$")
+        install(PROGRAMS "scripts/run-linux.sh" DESTINATION "bin" RENAME "fritchii")
+        install(DIRECTORY "dist/recipes/" DESTINATION "bin/recipes"
+            FILES_MATCHING PATTERN "*.nx2recipe")
+        install(FILES "dist/io.github.frizti.fritchii.desktop"
+            DESTINATION "share/applications")
+        install(FILES "dist/lichii.png"
+            DESTINATION "share/icons/hicolor/256x256/apps"
+            RENAME "io.github.frizti.fritchii.png")
+    else()
+        install(FILES "dist/io.github.zortos293.lichii.desktop"
+            DESTINATION "share/applications")
+        install(FILES "dist/lichii.png"
+            DESTINATION "share/icons/hicolor/256x256/apps"
+            RENAME "io.github.zortos293.lichii.png")
+    endif()
 
     # TODO: these files need to be updated.
     install(FILES "dist/dev.eden_emu.eden.xml"

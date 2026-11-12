@@ -312,6 +312,9 @@ std::vector<OldProfile> ListOldProfiles() {
     std::vector<std::pair<int, OldProfile>> found;
     for (const auto& candidate : candidates) {
         const auto& user = GetLegacyPath(candidate.user);
+        if (user.lexically_normal() == GetEdenPath(EdenPath::EdenDir).lexically_normal()) {
+            continue;
+        }
         if (!fs::is_directory(user)) {
             continue;
         }

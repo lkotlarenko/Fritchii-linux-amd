@@ -26,16 +26,17 @@
 
 namespace VideoCommon::Nx2Precompile {
 
-/// EDEN_NX2_PRECOMPILE: 0 (the default) off; 1 prepares a title's precompiled pipelines in the
-/// background where the driver keeps a pipeline cache of its own (NVIDIA, AMD's proprietary
-/// driver); 2 also on other drivers. Read when first asked, after nx2_switches.txt is applied.
+/// EDEN_NX2_PRECOMPILE: 0 off; 1 (default) prepares a title's precompiled pipelines where the
+/// driver keeps a pipeline cache of its own (NVIDIA, AMD proprietary, RADV with its disk cache
+/// enabled); 2 also on other drivers. Read after nx2_switches.txt is applied.
 [[nodiscard]] int Mode();
 
 /// EDEN_NX2_PRECOMPILED_FORCE=1 (#895's switch): prepare again although the stamp says it is done.
 [[nodiscard]] bool Forced();
 
 /// Threads that extract, assemble and prepare: EDEN_NX2_PRECOMPILE_THREADS (1 to 16), else a
-/// quarter of the host's, 1 to 6, like the background pipeline builds.
+/// quarter of the host's, 1 to 6, like the background pipeline builds. Linux also uses this bound
+/// during foreground preparation to avoid a second, larger compiler pool.
 [[nodiscard]] unsigned Threads();
 
 /// The game's RomFS as the running process reads it (a NUP's update laid over its base, or the

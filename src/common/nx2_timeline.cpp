@@ -16,6 +16,9 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__linux__)
+#include <pthread.h>
+#include <unistd.h>
 #endif
 
 #include "common/fs/path_util.h"
@@ -130,6 +133,11 @@ std::string CurrentThreadName() {
             }
         }
     }
+#elif defined(__linux__)
+    char name[16]{};
+    if (pthread_getname_np(pthread_self(), name, sizeof(name)) == 0 && name[0] != '\0') {
+        return name;
+    }
 #endif
     return "thread";
 }
@@ -137,6 +145,8 @@ std::string CurrentThreadName() {
 u64 CurrentThreadId() {
 #ifdef _WIN32
     return GetCurrentThreadId();
+#elif defined(__linux__)
+    return static_cast<u64>(gettid());
 #else
     return std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xffffff;
 #endif

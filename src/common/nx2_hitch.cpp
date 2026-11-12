@@ -19,6 +19,8 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
+#elif defined(__linux__)
+#include <sys/resource.h>
 #endif
 
 namespace Common::Nx2Hitch {
@@ -37,8 +39,10 @@ struct ThreadEntry {
 };
 
 std::array<ThreadEntry, MaxThreads> g_threads;
+#ifdef _WIN32
 std::atomic<size_t> g_thread_count{};
 std::mutex g_thread_mutex;
+#endif
 
 struct Snapshot {
     std::array<u64, Causes> ns{};
@@ -85,6 +89,15 @@ Snapshot Take() {
             snapshot.thread_user[i] = FileTimeValue(user);
             snapshot.thread_kernel[i] = FileTimeValue(kernel);
         }
+    }
+#elif defined(__linux__)
+    rusage usage{};
+    if (getrusage(RUSAGE_SELF, &usage) == 0) {
+        snapshot.page_faults = static_cast<u64>(usage.ru_minflt) + usage.ru_majflt;
+        snapshot.user_100ns = static_cast<u64>(usage.ru_utime.tv_sec) * 10'000'000 +
+                              static_cast<u64>(usage.ru_utime.tv_usec) * 10;
+        snapshot.kernel_100ns = static_cast<u64>(usage.ru_stime.tv_sec) * 10'000'000 +
+                                static_cast<u64>(usage.ru_stime.tv_usec) * 10;
     }
 #endif
     return snapshot;

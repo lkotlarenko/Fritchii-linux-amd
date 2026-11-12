@@ -138,15 +138,14 @@ inline std::atomic<bool> g_native_tensor_ops{false};
 inline std::atomic<long long> g_host_phase_ns{-1};
 
 /// Host frame times: the interval between frames handed to the swapchain, counted in 0.25 ms
-/// buckets (the last holds 63.75 ms and up). The debug server's status returns the counts; the
+/// buckets (the last holds 1023.75 ms and up). The debug server's status returns the counts; the
 /// difference between two calls gives that window's percentiles (1% and 0.1% lows).
-inline constexpr size_t FrameTimeBuckets = 256;
+inline constexpr size_t FrameTimeBuckets = 4096;
 inline constexpr long long FrameTimeBucketNs = 250'000;
 inline std::array<std::atomic<unsigned long long>, FrameTimeBuckets> g_frame_times{};
 
 inline void NoteFrameTime(long long interval_ns) {
-    // Longer gaps are loading screens or a paused game, not frames.
-    if (interval_ns <= 0 || interval_ns > 1'000'000'000) {
+    if (interval_ns <= 0) {
         return;
     }
     const auto bucket =

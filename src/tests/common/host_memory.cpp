@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 
 #include <catch2/catch_test_macros.hpp>
@@ -57,6 +58,27 @@ TEST_CASE("HostMemory: Simple map", "[common]") {
     volatile u8* const data = mem.VirtualBasePointer() + 0x5000;
     data[0] = 50;
     REQUIRE(data[0] == 50);
+}
+
+TEST_CASE("HostMemory: Cold hints preserve data and writable aliases", "[common][cold-hint]") {
+    if (!MapsSingleGuestPages()) {
+        SKIP("Host pages larger than 4 KiB only map whole host pages");
+    }
+    HostMemory mem(BACKING_SIZE, VIRTUAL_SIZE);
+    mem.Map(0x5000, 0x3000, 0x2000, PERMS, HEAP);
+    mem.Map(0xa000, 0x3000, 0x2000, PERMS, HEAP);
+    std::array<u8, 0x2000> expected;
+    for (size_t i = 0; i < expected.size(); ++i) {
+        expected[i] = static_cast<u8>(i * 37 + 11);
+    }
+    std::memcpy(mem.BackingBasePointer() + 0x3000, expected.data(), expected.size());
+    mem.HintCold(0x3000, expected.size(), 0x5000);
+    REQUIRE(std::memcmp(mem.BackingBasePointer() + 0x3000, expected.data(), expected.size()) == 0);
+    REQUIRE(std::memcmp(mem.VirtualBasePointer() + 0x5000, expected.data(), expected.size()) == 0);
+    REQUIRE(std::memcmp(mem.VirtualBasePointer() + 0xa000, expected.data(), expected.size()) == 0);
+    mem.VirtualBasePointer()[0xafff] = 79;
+    REQUIRE(mem.BackingBasePointer()[0x3fff] == 79);
+    REQUIRE(mem.VirtualBasePointer()[0x5fff] == 79);
 }
 
 TEST_CASE("HostMemory: Aligned contiguous map", "[common]") {

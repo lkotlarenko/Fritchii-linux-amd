@@ -122,7 +122,13 @@ TEST_CASE("CLI-first configuration is blocked and portable user stays untouched"
     setenv("XDG_DATA_HOME", (fixture.root / "data").c_str(), 1);
     setenv("XDG_CONFIG_HOME", (fixture.root / "config").c_str(), 1);
     setenv("XDG_CACHE_HOME", (fixture.root / "cache").c_str(), 1);
+    Common::FS::SetAppDirectory("");
+    CHECK_FALSE(NeedsLegacyProfileImport());
+#if defined(__linux__)
+    fs::create_directories(fixture.root / "data/lichii");
+#else
     fs::create_directories(fixture.root / "data/eden");
+#endif
     fs::create_directories(fixture.root / "config/lichii");
     Common::FS::SetAppDirectory("");
     CHECK(NeedsLegacyProfileImport());

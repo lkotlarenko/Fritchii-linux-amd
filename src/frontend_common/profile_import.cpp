@@ -43,6 +43,10 @@ bool NeedsLegacyProfileImport() {
     }
     constexpr std::array sources{LegacyEdenDir, LichiiDir, CitronDir, SudachiDir, SuyuDir, YuzuDir};
     for (const auto source : sources) {
+        if (GetLegacyPath(source).lexically_normal() ==
+            GetEdenPath(EdenPath::EdenDir).lexically_normal()) {
+            continue;
+        }
         if (fs::is_directory(GetLegacyPath(source))) {
             return true;
         }

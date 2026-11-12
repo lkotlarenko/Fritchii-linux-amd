@@ -183,7 +183,7 @@ add_executable(tests
 
 create_target_directory_groups(tests)
 
-target_link_libraries(tests PRIVATE common core audio_core input_common video_core)
+target_link_libraries(tests PRIVATE common core audio_core input_common video_core frontend_common)
 target_link_libraries(tests PRIVATE ${PLATFORM_LIBRARIES} Catch2::Catch2WithMain Threads::Threads)
 
 if (TARGET dynarmic::dynarmic)
@@ -195,6 +195,10 @@ target_compile_definitions(tests PRIVATE
     LICHII_NX_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/core/nx_fixtures")
 
 add_test(NAME tests COMMAND tests)
+add_test(NAME spirv_global_memory_no_inline COMMAND tests
+    "SPIR-V global memory helpers honor the inline setting")
+set_tests_properties(spirv_global_memory_no_inline PROPERTIES
+    ENVIRONMENT "EDEN_NX2_SPIRV_INLINE_GLOBALS=0")
 
 add_executable(profile_migration_tests
     common/profile_migration.cpp)

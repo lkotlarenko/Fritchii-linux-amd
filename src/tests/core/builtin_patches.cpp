@@ -537,30 +537,37 @@ TEST_CASE("High refresh rate mode switches live between the two boot layouts",
     }
 
     SECTION("Code in neither mode is never switched") {
+        // v5.8 keeps the ripple cave in Off mode; construct the legacy free-cave layout.
+        const auto original = FileSys::ReadOotHighRefreshCode(std::span<const u8>{nso}.subspan(Code));
+        REQUIRE(original);
+        auto legacy_off = *off_parts;
+        legacy_off.cave = original->cave;
+        legacy_off.water = original->water;
+        REQUIRE(FileSys::GetOotHighRefreshLayout(legacy_off) == OotHighRefreshLayout::Off);
         const auto refused = [](const FileSys::OotHighRefreshCode& parts) {
             return FileSys::GetOotHighRefreshLayout(parts) == OotHighRefreshLayout::Unknown &&
                    !FileSys::SwitchOotHighRefreshCode(parts, true) &&
                    !FileSys::SwitchOotHighRefreshCode(parts, false);
         };
-        auto used_cave = *off_parts; // a word of our cave in use (another mod's code)
+        auto used_cave = legacy_off; // a word of our cave in use (another mod's code)
         used_cave.cave[0x100] = 1;
         REQUIRE(refused(used_cave));
         auto changed_dark = *on_parts; // Dark's routine changed: switching off would call it
         changed_dark.dark[0x40] ^= 1;
         REQUIRE(refused(changed_dark));
-        auto stray_scale = *off_parts; // Off holds no speed scale word
+        auto stray_scale = legacy_off; // The legacy free cave holds no speed scale word
         stray_scale.cave[Scale + 3] = 0x3F;
         REQUIRE(refused(stray_scale));
-        auto no_call = *off_parts; // Dark's routine off in Add-Ons: the game's own fdiv
+        auto no_call = legacy_off; // Dark's routine off in Add-Ons: the game's own fdiv
         no_call.call = {0x28, 0x18, 0x20, 0x1E};
         REQUIRE(refused(no_call));
         auto modded_water = *on_parts; // a mod's word at the water hook
         modded_water.water = {0x1F, 0x20, 0x03, 0xD5};
         REQUIRE(refused(modded_water));
-        auto off_water_hooked = *off_parts; // Dark's cave with the hook: half switched
+        auto off_water_hooked = legacy_off; // Free cave with the hook: half switched
         off_water_hooked.water = on_parts->water;
         REQUIRE(refused(off_water_hooked));
-        auto half_written = *off_parts; // the first half of the high refresh cave
+        auto half_written = legacy_off; // the first half of the high refresh cave
         std::copy_n(on_parts->cave.begin(), 0x80, half_written.cave.begin());
         REQUIRE(refused(half_written));
         auto changed_routine = *on_parts;

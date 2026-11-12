@@ -12,6 +12,7 @@
 
 #include "common/common_types.h"
 #include "common/logging.h"
+#include "video_core/vulkan_common/pipeline_build_diagnostics.h"
 #include "video_core/vulkan_common/vk_enum_string_helper.h"
 #include "video_core/vulkan_common/vma.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
@@ -785,7 +786,12 @@ PipelineLayout Device::CreatePipelineLayout(const VkPipelineLayoutCreateInfo& ci
 
 Pipeline Device::CreateGraphicsPipeline(const VkGraphicsPipelineCreateInfo& ci, VkPipelineCache cache) const {
     VkPipeline object = VK_NULL_HANDLE;
+    const auto begin = PipelineBuildDiagnostics::Enabled() ? std::chrono::steady_clock::now()
+                                                         : std::chrono::steady_clock::time_point{};
     auto const result = dld->vkCreateGraphicsPipelines(handle, cache, 1, &ci, nullptr, &object);
+    if (PipelineBuildDiagnostics::Enabled()) {
+        PipelineBuildDiagnostics::Record(false, result, cache != VK_NULL_HANDLE, begin);
+    }
     // Adreno 5xx drivers do not properly return when a graphics pipeline fails to be created
     // Some (unkown) Mali drivers also do not properly return
     // This result code is out of spec, but should be handled as "kinda working"
@@ -798,7 +804,13 @@ Pipeline Device::CreateGraphicsPipeline(const VkGraphicsPipelineCreateInfo& ci, 
 Pipeline Device::CreateComputePipeline(const VkComputePipelineCreateInfo& ci,
                                        VkPipelineCache cache) const {
     VkPipeline object;
-    Check(dld->vkCreateComputePipelines(handle, cache, 1, &ci, nullptr, &object));
+    const auto begin = PipelineBuildDiagnostics::Enabled() ? std::chrono::steady_clock::now()
+                                                         : std::chrono::steady_clock::time_point{};
+    const auto result = dld->vkCreateComputePipelines(handle, cache, 1, &ci, nullptr, &object);
+    if (PipelineBuildDiagnostics::Enabled()) {
+        PipelineBuildDiagnostics::Record(true, result, cache != VK_NULL_HANDLE, begin);
+    }
+    Check(result);
     return Pipeline(object, handle, *dld);
 }
 

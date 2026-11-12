@@ -16,6 +16,10 @@
 #include <mutex>
 #include <thread>
 
+#ifdef __linux__
+#include <unistd.h>
+#endif
+
 #include "common/fs/path_util.h"
 #include "common/scope_exit.h"
 #include "common/logging.h"
@@ -219,6 +223,9 @@ json Status(ToolState& state, const json& params) {
         frame_times.push_back(count.load(std::memory_order_relaxed));
     }
     return {
+#ifdef __linux__
+        {"host_pid", getpid()},
+#endif
         {"frame_time_bucket_us", VideoCommon::Nx2Perf::FrameTimeBucketNs / 1000},
         {"frame_times", std::move(frame_times)},
         {"title", state.title},

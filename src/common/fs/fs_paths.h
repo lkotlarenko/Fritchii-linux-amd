@@ -10,7 +10,12 @@
 
 // Fritchii keeps its own profile (v5.8, the owner's call): imported from eden (Eden, Lichii
 // before build 150, earlier Fritchii) or lichii (Lichii 150+) on the first launch.
+#if defined(__linux__) && !defined(__ANDROID__)
+// The native port already isolates all XDG roots under fritchii-native.
+#define EDEN_DIR "eden"
+#else
 #define EDEN_DIR "fritchii"
+#endif
 #define EDEN_LEGACY_DIR "eden"
 #define LICHII_DIR "lichii"
 #define PORTABLE_DIR "user"

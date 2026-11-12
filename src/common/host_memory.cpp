@@ -56,11 +56,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
 #include <random>
+#include <string_view>
 #include <vector>
 
 #include "common/alignment.h"
@@ -1167,6 +1169,74 @@ void HostMemory::Protect(size_t virtual_offset, size_t length, MemoryPermission 
 #endif
 }
 
+#if defined(__linux__) && defined(MADV_PAGEOUT)
+namespace {
+int ColdMemoryAdvice() {
+    static const int advice = [] {
+        const char* value = std::getenv("FRITCHII_COLD_MEMORY_MODE");
+        const std::string_view mode = value ? value : "pageout";
+        int selected = MADV_PAGEOUT;
+        if (mode == "off") {
+            selected = -1;
+#ifdef MADV_COLD
+        } else if (mode == "cold") {
+            selected = MADV_COLD;
+#endif
+        } else if (mode != "pageout") {
+            LOG_WARNING(HW_Memory, "Unknown FRITCHII_COLD_MEMORY_MODE '{}'; using pageout", mode);
+        }
+        LOG_INFO(HW_Memory, "Linux cold memory advice: {} (MADV_PAGEOUT={}, off=-1)",
+                 selected, MADV_PAGEOUT);
+        return selected;
+    }();
+    return advice;
+}
+
+void HintLinuxColdMemory(u8* address, size_t length) {
+    const int advice = ColdMemoryAdvice();
+    static const bool diagnostics = [] {
+        const char* value = std::getenv("FRITCHII_COLD_MEMORY_DIAGNOSTICS");
+        return value && std::string_view{value} == "1";
+    }();
+    if (!diagnostics) {
+        if (advice != -1) {
+            madvise(address, length, advice);
+        }
+        return;
+    }
+    struct Totals {
+        u64 requests{}, bytes{}, calls{}, errors{}, microseconds{}, longest_us{};
+        int last_error{};
+        std::chrono::steady_clock::time_point last_report = std::chrono::steady_clock::now();
+    };
+    thread_local Totals totals;
+    ++totals.requests;
+    totals.bytes += length;
+    const auto begin = std::chrono::steady_clock::now();
+    if (advice != -1) {
+        ++totals.calls;
+        if (madvise(address, length, advice) != 0) {
+            ++totals.errors;
+            totals.last_error = errno;
+        }
+    }
+    const auto end = std::chrono::steady_clock::now();
+    const auto elapsed = static_cast<u64>(
+        std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count());
+    totals.microseconds += elapsed;
+    totals.longest_us = (std::max)(totals.longest_us, elapsed);
+    if (end - totals.last_report >= std::chrono::seconds{10}) {
+        LOG_INFO(HW_Memory,
+                 "Linux cold hints cumulative on thread {}: advice={}, {} requests, {} MiB "
+                 "(aliases counted), {} syscalls, {} errors (last errno={}), {} us total, {} us longest",
+                 gettid(), advice, totals.requests, totals.bytes >> 20, totals.calls, totals.errors,
+                 totals.last_error, totals.microseconds, totals.longest_us);
+        totals.last_report = end;
+    }
+}
+} // namespace
+#endif
+
 void HostMemory::HintCold(size_t physical_offset, size_t length,
                           std::optional<size_t> virtual_offset) const {
     if (length == 0 || backing_base == nullptr) {
@@ -1177,7 +1247,7 @@ void HostMemory::HintCold(size_t physical_offset, size_t length,
         // Unlocking pages that are not locked takes them out of the working set.
         VirtualUnlock(address, length);
 #elif defined(__linux__) && defined(MADV_PAGEOUT)
-        madvise(address, length, MADV_PAGEOUT);
+        HintLinuxColdMemory(address, length);
 #else
         static_cast<void>(address);
 #endif

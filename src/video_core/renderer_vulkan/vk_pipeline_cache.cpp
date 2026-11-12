@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
@@ -86,6 +87,7 @@
 #include "video_core/shader_warm/shader_warm_builder.h"
 #include "video_core/shader_warm/warm_records.h"
 #include "video_core/surface.h"
+#include "video_core/vulkan_common/pipeline_build_diagnostics.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #include "video_core/gpu_logging/gpu_logging.h"
@@ -666,11 +668,35 @@ bool AmdAppCache(const Device& device) {
     return enabled && device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY;
 }
 
+// Mesa cache detection adapted from Djihads80/Eglantine#714.
+bool MesaEnvFlagSet(const char* name) {
+    const char* value = std::getenv(name);
+    if (value == nullptr) {
+        return false;
+    }
+    const std::string_view v{value};
+    for (const std::string_view truthy : {"1", "true", "t", "yes", "y"}) {
+        if (std::ranges::equal(v, truthy, [](char a, char b) {
+                return std::tolower(static_cast<unsigned char>(a)) == b;
+            })) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool DriverCachesPipelines(const Device& device) {
     switch (device.GetDriverID()) {
     case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
     case VK_DRIVER_ID_AMD_PROPRIETARY:
         return true;
+    case VK_DRIVER_ID_MESA_RADV: {
+        const char* debug = std::getenv("RADV_DEBUG");
+        const std::string flags = "," + std::string{debug ? debug : ""} + ",";
+        return !MesaEnvFlagSet("MESA_SHADER_CACHE_DISABLE") &&
+               !MesaEnvFlagSet("MESA_GLSL_CACHE_DISABLE") &&
+               flags.find(",nocache,") == std::string::npos;
+    }
     default:
         return false;
     }
@@ -1894,6 +1920,7 @@ PipelineCache::~PipelineCache() {
     Common::NoteShutdownProgress();
     workers.WaitForRequests();
     serialization_thread.WaitForRequests();
+    PipelineBuildDiagnostics::Report("session exit");
     Common::NoteShutdownProgress();
     // The caches are written before anything slow is torn down, so a teardown cut short still
     // leaves them on disk.
@@ -4085,9 +4112,18 @@ void PipelineCache::PreparePrecompiled(const std::filesystem::path& base_dir,
     // recompiler, pipeline creation and the precompile step (CMakeModules/Nx2ShaderStamp.cmake).
     const auto stamp_path =
         base_dir / fmt::format("precompiled_prepared.fork-v{}.txt", CACHE_VERSION);
-    const std::string stamp = fmt::format("{} {} {:#x} shaders-{} {}\n", file_size, modified,
+    std::string cache_identity;
+    if (device.GetDriverID() == VK_DRIVER_ID_MESA_RADV) {
+        const auto properties = device.GetPhysical().GetProperties();
+        cache_identity = fmt::format(" radv:{:04x}:{:04x}:", properties.vendorID,
+                                     properties.deviceID);
+        for (const u8 byte : properties.pipelineCacheUUID) {
+            cache_identity += fmt::format("{:02x}", byte);
+        }
+    }
+    const std::string stamp = fmt::format("{} {} {:#x} shaders-{} {}{}\n", file_size, modified,
                                           device.GetDriverVersion(), NX2_SHADER_STAMP,
-                                          device.GetModelName());
+                                          device.GetModelName(), cache_identity);
     // EDEN_NX2_PRECOMPILED_FAST: the preparation keeps each pipeline's infos and SPIR-V too
     // (vk_precompiled_kept.h), for this release, its settings and GPU. Whether this build
     // translates them the same is checked on a sample at boot (CheckKeptSample), not stamped.
@@ -4273,6 +4309,8 @@ void PipelineCache::PreparePrecompiled(const std::filesystem::path& base_dir,
         std::atomic<size_t> built{};
         std::atomic<size_t> fast{};      ///< built in under FastBuild: most likely a driver cache hit
         std::atomic<size_t> failed{};
+        std::atomic<size_t> failure_logs{};
+        std::atomic<size_t> exceptions{};
         std::atomic<size_t> other_device{};
         /// Of other_device, per dynamic state the record and this device disagree on (recorded
         /// dynamic / this device dynamic): EDS, EDS2, EDS2 logic op, EDS3 blend, EDS3 enables,
@@ -4304,9 +4342,15 @@ void PipelineCache::PreparePrecompiled(const std::filesystem::path& base_dir,
     const auto disk_keys = precompile_disk_keys;
     const auto begin = std::chrono::steady_clock::now();
     // Threads() workers beside the game; at full speed (the frontend holds the game for the
-    // preparation) one per host thread, at normal priority.
+    // preparation) the foreground pool runs at normal priority.
+#ifdef __linux__
+    // Respect the bounded preparation pool even while the game is held. Each concurrent
+    // translator owns IR and driver allocations; twelve builders can pressure a 16 GiB host.
+    const size_t full_threads = threads;
+#else
     const size_t full_threads =
         std::max<size_t>(threads, std::max(1U, std::thread::hardware_concurrency()));
+#endif
     const auto complete = [&](size_t index) {
         const size_t finished = state.finished.fetch_add(1) + 1;
         {
@@ -4458,9 +4502,14 @@ void PipelineCache::PreparePrecompiled(const std::filesystem::path& base_dir,
                     const std::span<const u32> env_ids{ids.data(), count};
                     if (compute) {
                         ComputeKeep kept;
-                        ok = CreateComputePipeline(pools, compute_key, envs.front(), nullptr,
-                                                   false, true, keeping ? &kept : nullptr)
-                                 .pipeline != nullptr;
+                        const auto entry = CreateComputePipeline(
+                            pools, compute_key, envs.front(), nullptr, false, true,
+                            keeping ? &kept : nullptr);
+                        ok = entry.pipeline != nullptr;
+                        if (!ok && state.failure_logs.fetch_add(1) < 16) {
+                            LOG_WARNING(Render_Vulkan, "Precompiled compute record {} failed: {}",
+                                        index, entry.failure);
+                        }
                         if (ok && keeping && !kept.spirv.empty()) {
                             std::array<std::vector<u8>, 5> infos;
                             std::array<std::vector<u32>, 5> spirv;
@@ -4505,7 +4554,12 @@ void PipelineCache::PreparePrecompiled(const std::filesystem::path& base_dir,
                     }
                 }
             } catch (const std::exception& e) {
-                LOG_DEBUG(Render_Vulkan, "Precompiled pipeline {} failed: {}", index, e.what());
+                ok = false;
+                ++state.exceptions;
+                if (state.failure_logs.fetch_add(1) < 16) {
+                    LOG_WARNING(Render_Vulkan, "Precompiled pipeline {} failed: {}", index,
+                                e.what());
+                }
             }
             if (!skipped) {
                 ++(ok ? state.built : state.failed);
@@ -4546,6 +4600,11 @@ void PipelineCache::PreparePrecompiled(const std::filesystem::path& base_dir,
              state.known.load() + state.other_device.load(), state.known.load(),
              state.other_device.load(), total - reached, seconds);
     LogDriverCacheFolder(device, "after the preparation");
+    LOG_INFO(Render_Vulkan,
+             "Precompiled failure reasons: {} exceptions, {} null or failed pipeline results "
+             "(first 16 exception/compute reasons shown)",
+             state.exceptions.load(), state.failed.load() - state.exceptions.load());
+    PipelineBuildDiagnostics::Report("preparation finished");
     if (state.other_device.load() != 0) {
         // Which dynamic states made records "for another device" (recorded on a GPU that has
         // them dynamic and this one static, or the reverse): AMD players skipped most of the
@@ -5815,6 +5874,7 @@ void PipelineCache::TickFrame() {
         if (now - last_memory_log >= std::chrono::seconds{10}) {
             last_memory_log = now;
             LogMemoryUse();
+            PipelineBuildDiagnostics::Report("gameplay");
         }
     }
     if (device.IsExtGraphicsPipelineLibrarySupported()) {
@@ -6285,11 +6345,15 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         Shader::Maxwell::Flow::CFG cfg(env, pools.flow_block, cfg_offset, index == 0);
         if (!uses_vertex_a || index != 1) {
             // Normal path
-            programs[index] = TranslateProgram(pools.inst, pools.block, env, cfg, host_info);
+            programs[index] = PipelineBuildDiagnostics::Translate(false, [&] {
+                return TranslateProgram(pools.inst, pools.block, env, cfg, host_info);
+            });
         } else {
             // VertexB path when VertexA is present.
             auto& program_va{programs[0]};
-            auto program_vb{TranslateProgram(pools.inst, pools.block, env, cfg, host_info)};
+            auto program_vb{PipelineBuildDiagnostics::Translate(false, [&] {
+                return TranslateProgram(pools.inst, pools.block, env, cfg, host_info);
+            })};
             programs[index] = MergeDualVertexPrograms(program_va, program_vb, env, host_info);
         }
         if (t_runtime_build) {
@@ -7413,7 +7477,9 @@ ComputePipelineCacheEntry PipelineCache::CreateComputePipeline(
         env.Dump(hash, key.unique_hash);
     }
 
-    auto program{TranslateProgram(pools.inst, pools.block, env, cfg, host_info)};
+    auto program{PipelineBuildDiagnostics::Translate(true, [&] {
+        return TranslateProgram(pools.inst, pools.block, env, cfg, host_info);
+    })};
     if (const auto edits = Shader::Optimization::ApplyOotVisualWorkaround(
             program, program_id != 0 ? program_id : visual_workaround_title, key.unique_hash,
             oot_visual_workaround)) {

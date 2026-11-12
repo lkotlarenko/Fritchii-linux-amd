@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -78,6 +79,24 @@ std::vector<u8> Reference(const Nx2Picture& picture, u32 width, u32 height, u32 
                       planes.data(), strides.data()) == static_cast<int>(height));
     return bytes;
 }
+
+void CheckVisibleNv12(std::span<const u8> actual, std::span<const u8> expected,
+                      u32 width, u32 height, u32 pitch) {
+    REQUIRE(actual.size() == expected.size());
+    // Scaler row padding is not image data and can differ between SIMD paths.
+    for (u32 plane = 0; plane < 2; ++plane) {
+        const u32 offset = plane == 0 ? 0 : pitch * height;
+        const u32 rows = plane == 0 ? height : (height + 1) / 2;
+        const u32 bytes = plane == 0 ? width : 2 * ((width + 1) / 2);
+        for (u32 row = 0; row < rows; ++row) {
+            for (u32 x = 0; x < bytes; ++x) {
+                const auto index = offset + row * pitch + x;
+                CAPTURE(plane, row, x);
+                REQUIRE(actual[index] == expected[index]);
+            }
+        }
+    }
+}
 } // namespace
 
 TEST_CASE("NX2 video interleaves planar chroma and copies complete odd NV12 rows",
@@ -148,13 +167,14 @@ TEST_CASE("NX2 video refreshes cached scaler ranges from full to limited and bac
         std::vector<u8> actual(expected.size(), 0xcd);
         decoder.Render(picture, Nx2PictureFormat::Nv12, width, height, pitch, pitch * height,
                        actual);
-        REQUIRE(actual == expected);
+        CAPTURE(range);
+        CheckVisibleNv12(actual, expected, width, height, pitch);
         if (first_full.empty()) {
             first_full = actual;
         } else if (range == AVCOL_RANGE_MPEG) {
-            REQUIRE(actual != first_full);
+            REQUIRE(actual.front() != first_full.front());
         } else {
-            REQUIRE(actual == first_full);
+            CheckVisibleNv12(actual, first_full, width, height, pitch);
         }
     }
 }
@@ -169,12 +189,12 @@ TEST_CASE("NX2 video keeps full-range planar frames on the scaler path",
         const auto expected = Reference(picture, 16, 16, 32);
         std::vector<u8> actual(expected.size(), 0xcd);
         decoder.Render(picture, Nx2PictureFormat::Nv12, 16, 16, 32, 32 * 16, actual);
-        REQUIRE(actual == expected);
+        CheckVisibleNv12(actual, expected, 16, 16, 32);
         if (format == AV_PIX_FMT_YUVJ420P) {
             picture.frame->GetFrame()->color_range = AVCOL_RANGE_UNSPECIFIED;
             std::fill(actual.begin(), actual.end(), 0xcd);
             decoder.Render(picture, Nx2PictureFormat::Nv12, 16, 16, 32, 32 * 16, actual);
-            REQUIRE(actual == expected);
+            CheckVisibleNv12(actual, expected, 16, 16, 32);
         }
     }
 }
@@ -207,13 +227,14 @@ TEST_CASE("NX2 full-range NV12 preserves same-size chroma and converts resized f
         expected = Reference(picture, 8, 8, pitch);
         actual.assign(expected.size(), 0xcd);
         decoder.Render(picture, Nx2PictureFormat::Nv12, 8, 8, pitch, pitch * 8, actual);
-        REQUIRE(actual == expected);
+        CAPTURE(range);
+        CheckVisibleNv12(actual, expected, 8, 8, pitch);
         if (first_full.empty()) {
             first_full = actual;
         } else if (range == AVCOL_RANGE_MPEG) {
-            REQUIRE(actual != first_full);
+            REQUIRE(actual.front() != first_full.front());
         } else {
-            REQUIRE(actual == first_full);
+            CheckVisibleNv12(actual, first_full, 8, 8, pitch);
         }
     }
 }
