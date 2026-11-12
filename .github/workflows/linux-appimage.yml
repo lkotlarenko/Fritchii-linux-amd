@@ -84,6 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/build-linux.sh -DENABLE_DEBUG_TOOLS=OFF \
+            -DVulkanHeaders_FORCE_BUNDLED=ON -DVulkanUtilityLibraries_FORCE_BUNDLED=ON \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache 2>&1 | tee build/logs/ci-build.log
           python3 tools/nx2/test_linux_benchmark.py
