@@ -6,86 +6,88 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 -->
 
-<p align="center">
-  <img src="dist/branding/lichii_icon_with_logo.png" alt="Lichii" width="600">
-</p>
+# Fritchii Linux AMD
 
-# Lichii
+A native Linux port of [Fritchii](https://github.com/Frizti/Fritchii), preserving
+its Zelda optimizations, shader preparation, dynamic FPS controls and Qt6 GUI.
+Current base: **official Fritchii v5.8.4**, Windows `oot-gather-fix` commit
+`4f5c53149b7e17d1c24445f68d79a83a3b2a17f9`. This port does not replace Fritchii
+with generic Lichii.
 
-Lichii is an experimental, open-source Nintendo Switch and Switch 2 emulator written in C++. It builds on Eglantine, Eden, yuzu and Sudachi, preserving their contributions while developing this fork's game compatibility and renderer fixes.
+[Download Linux releases](https://github.com/lkotlarenko/Fritchii-linux-amd/releases)
+· [Build and run](README-LINUX.md)
+· [Performance measurements](docs/linux/OPTIMIZATION_LEDGER.md)
+· [Development handoff](LINUX_PERFORMANCE_HANDOFF.md)
 
-This is an independent fork, not an official release of those upstream projects. Lichii is not affiliated with Nintendo.
+## Run
 
-## Downloads and setup
+Download the x86_64 AppImage and its `.sha256` file from this fork's releases:
 
-Published builds belong on this fork's [releases page](https://github.com/zortos293/Eglantine/releases). The repository still uses its historical Eglantine name; the desktop application is now Lichii.
-
-On Windows, extract the entire build archive and run **lichii.exe**. Only use games and system files you have legally obtained. Games, keys and firmware are not included.
-
-### Existing saves and settings
-
-Fritchii keeps its own profile: `%APPDATA%\fritchii` on Windows, and the `fritchii` directories under `$XDG_DATA_HOME`, `$XDG_CONFIG_HOME` and `$XDG_CACHE_HOME` on Linux and macOS. An existing portable `user/` directory still takes priority and is not imported or changed.
-
-On the first launch Fritchii copies your newest existing profile (an earlier Fritchii or Eden in `%APPDATA%\eden`, Lichii 150+ in `%APPDATA%\lichii`, else yuzu, suyu, sudachi or citron) into its folder and shows what it copied. Settings, keys, mods and saves are copied; caches are not, so shaders are prepared again once. The old folder is never changed. If the emulator using it is still open, close it and start Fritchii again. An interrupted copy is put back and retried on the next launch.
-
-## Compatibility and issue reports
-
-Compatibility and performance vary by game, hardware and driver. Rendering errors, stutters and crashes remain possible. Passing automated tests does not establish that a game renders correctly, and this project makes no universal frame-rate guarantee.
-
-When [reporting an issue](https://github.com/zortos293/Eglantine/issues), include:
-
-- The exact build, game version, CPU, GPU and driver version.
-- Relevant settings and steps to reproduce the problem.
-- A screenshot and the log from the affected session, after checking it for personal information.
-
-Do not upload game files, keys, firmware or private account information.
-
-## Building and contributing
-
-See the [build guide](docs/Build.md), [user documentation](docs/user/README.md) and [coding guidelines](docs/Coding.md). Some inherited documentation and internal build target names still use upstream names. The GUI build target remains `yuzu`; its output is `lichii.exe` on Windows and `lichii` on other desktop platforms.
-
-Keep changes focused and distinguish code-level checks from actual gameplay testing.
-
-## Artwork
-Art created by YOB (yobslab)
-The supplied Lichii logo, icon and library artwork are in [dist/branding](dist/branding). Windows, Linux and macOS icon resources are generated from that artwork by [Generate-LichiiIcons.ps1](tools/Generate-LichiiIcons.ps1).
-
-## Support Lichii
-
-Lichii is free and stays free. If you want to help, you can donate in crypto. Donations help pay for the AI tools and build machines used to develop this open-source project faster.
-
-**Solana (SOL)**
-```text
-JepEjfyWjGjhJvHSrqj52KtLjcbbbmUh1iGqerYBF4w
+```sh
+sha256sum --check Fritchii-5.8.4-linux-x86_64.AppImage.sha256
+chmod +x Fritchii-5.8.4-linux-x86_64.AppImage
+./Fritchii-5.8.4-linux-x86_64.AppImage
 ```
 
-**Ethereum (ETH)**
-```text
-0x055ABa1b80Bc35C836Ce7E9F47c2b3d6C75b5534
-```
+Target: current Arch Linux/CachyOS, Qt6, Vulkan and Mesa RADV, with native Wayland
+and X11/XWayland support. Development testing uses an RX 7600 and Ryzen 5 4600G.
+AMD is the tested target, not a mandatory vendor lock. Host Vulkan drivers are
+required; the Arch-built package is not compatible with every older glibc distro.
+If FUSE is unavailable, run with `APPIMAGE_EXTRACT_AND_RUN=1`.
+Games, console keys, firmware and user profiles are not included.
 
-**Bitcoin (BTC)**
-```text
-bc1qcvxdpf4qvdhqp8ee4s355cjmxrzsphsdwpl8w4
-```
+## Saves and shaders
 
-**BNB Smart Chain (BNB)**
-```text
-0x055ABa1b80Bc35C836Ce7E9F47c2b3d6C75b5534
-```
+The supplied launcher preserves this port's existing XDG layout:
 
-**Polygon**
-```text
-0x055ABa1b80Bc35C836Ce7E9F47c2b3d6C75b5534
-```
+- Data/saves: `$XDG_DATA_HOME/fritchii-native/eden` (default `~/.local/share/fritchii-native/eden`).
+- Settings: `$XDG_CONFIG_HOME/fritchii-native/eden` (default `~/.config/fritchii-native/eden`).
+- Caches: `$XDG_CACHE_HOME/fritchii-native/eden` (default `~/.cache/fritchii-native/eden`).
 
-Send each coin on its matching network. Coins sent on the wrong network can't be recovered.
+Native and AppImage launches use the same layout. v5.8.4 keeps the Linux `eden`
+leaf despite the Windows release's directory migration. Existing saves and v54
+caches are retained. Full shader preparation runs before gameplay and can take
+several minutes; a changed shader translator can require it once again. A warm
+launch reuses the matching device/driver cache. Do not delete caches to update.
+The automatic Windows updater is disabled; replace only the executable/AppImage.
 
-> [!NOTE]
-> Donations are voluntary gifts and are non-refundable. A donation does not buy any product, service, perk, early access, exclusive build, priority support or say in the project. Every release stays free and public for everyone.
+## Validation and performance
 
-## Credits and license
+The current local Release passes five CTest targets, including 949 main test
+cases. Native Wayland saved-game rendering, AppImage warm-cache reuse, and
+Wayland/XWayland home/settings smoke tests passed on the development machine.
+Preparation completed 120,087 pipelines, with 37 retained record failures and
+zero device skips; those unresolved records can compile when needed.
 
-Lichii inherits the work of the Eglantine, Eden, yuzu and Sudachi projects and their contributors, including Eglantine's original developer Camille LaVey. Original copyright notices and third-party licenses are retained.
+A verified stationary Kokiri Forest window measured **25.67 FPS**, approximately
+**12.30 FPS 1% low**. This is one scene and one 60-second window, not a universal
+FPS expectation or a before/after performance claim. Paging and CPU/GPU
+synchronization remain substantial bottlenecks. The translation-lookup change
+reduces measured function cost; its gameplay benefit is not established.
+See the ledger for raw conditions, rejected experiments and remaining work.
+No full playthrough or universal rendering guarantee is claimed.
 
-See [LICENSE.txt](LICENSE.txt) and the source files for applicable license terms.
+## Build, update and contribute
+
+See [README-LINUX.md](README-LINUX.md) for dependencies and scripts,
+[release automation](docs/linux/RELEASING.md) for tagged AppImage releases, and
+[docs/Coding.md](docs/Coding.md) for coding guidance. Linux release tags follow
+`linux-v<upstream-version>-r<port-revision>`; publishing a tag builds/tests the
+AppImage before release. CI performs an Xvfb GUI smoke, not a real-game GPU test.
+
+Keep upstream updates and Linux optimizations reviewable, preserve Fritchii's
+specialized behavior, and benchmark on isolated profile copies. Report Linux
+issues [here](https://github.com/lkotlarenko/Fritchii-linux-amd/issues), including
+build, driver, settings, reproduction steps and a log checked for private data.
+Do not upload games, keys, firmware or account files.
+
+## Credits and licensing
+
+Fritchii is maintained upstream by Frizti and builds on
+[Lichii](https://github.com/zortos293/Lichii), Eglantine, Eden, yuzu and Sudachi.
+The Linux port also reviewed community work by
+[xTopher1049](https://github.com/xTopher1049/Fritchii-linux) and
+[Gusdevr](https://github.com/Gusdevr/fritchii-linux-build).
+Inherited artwork is by YOB (yobslab); see [branding](dist/branding).
+Source licenses and upstream notices remain in place; see [LICENSE.txt](LICENSE.txt).
+This is an independent emulator fork, not affiliated with Nintendo.

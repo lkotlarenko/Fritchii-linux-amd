@@ -45,6 +45,7 @@ ROLES = {
     "GPUBack": "back",
     "VulkanWorker": "worker",
     "GPUFencingThread": "fence",
+    "GPUFencingThrea": "fence",  # Linux pthread names are limited to 15 bytes.
     "VulkanPresent": "present",
     "VulkanPresentWait": "present-wait",
 }

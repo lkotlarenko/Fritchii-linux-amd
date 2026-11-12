@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Fritchii
+GenericName=Switch Emulator
+Comment=Fritchii v5.5 native Linux emulator
+Icon=io.github.frizti.fritchii
+TryExec=fritchii
+Exec=fritchii %f
+Categories=Game;Emulator;Qt;
+MimeType=application/x-nx-nro;application/x-nx-nso;application/x-nx-nsp;application/x-nx-xci;
+Keywords=Nintendo;Switch;Fritchii;
+StartupWMClass=lichii
+Terminal=false
